@@ -1,0 +1,76 @@
+{% extends "admin/base_site.html" %}
+{% block content %}
+
+<h1>Generate Story Video</h1>
+
+<form method="post" style="max-width: 700px; margin-top: 20px;">
+  {% csrf_token %}
+
+  <div style="margin-bottom: 16px;">
+    <label style="display:block; font-weight:bold; margin-bottom:4px;">
+      {{ form.story_text.label }}
+    </label>
+    {{ form.story_text }}
+    {% if form.story_text.errors %}
+      <p style="color:red">{{ form.story_text.errors }}</p>
+    {% endif %}
+  </div>
+
+  <div style="display:flex; gap:24px; margin-bottom:24px; flex-wrap:wrap;">
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.lang.label }}
+      </label>
+      {{ form.lang }}
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.accent.label }}
+      </label>
+      {{ form.accent }}
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.speed.label }}
+      </label>
+      {{ form.speed }}
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.voice_gender.label }}
+      </label>
+      {{ form.voice_gender }}
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.image_style.label }}
+      </label>
+      {{ form.image_style }}
+    </div>
+
+    <div>
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.format.label }}
+      </label>
+      {{ form.format }}
+    </div>
+
+  </div>
+
+  <div>
+    <input type="submit" value="Generate Video"
+      style="background:#417690; color:white; border:none; padding:10px 24px;
+             font-size:14px; border-radius:4px; cursor:pointer;">
+    <span style="margin-left:12px; color:#666; font-size:13px;">
+      Pipeline runs in the background — check the Story Jobs list for progress.
+    </span>
+  </div>
+
+</form>
+
+{% endblock %}

@@ -1,0 +1,19 @@
+{% extends "admin/base.html" %}
+
+{% block nav-global %}
+<div style="background:#2c6b8a; padding:8px 16px; display:flex; align-items:center; gap:16px;">
+  <a href="/admin/video_pipeline/storyjob/generate/"
+     style="color:white; font-weight:bold; text-decoration:none; font-size:13px;
+            background:#e8a020; padding:5px 14px; border-radius:4px;">
+    + Generate Story Video
+  </a>
+  <a href="/admin/video_pipeline/storyjob/"
+     style="color:white; text-decoration:none; font-size:13px;">
+    Story Jobs
+  </a>
+  <a href="/admin/video_pipeline/ttssettings/"
+     style="color:white; text-decoration:none; font-size:13px;">
+    Settings
+  </a>
+</div>
+{% endblock %}

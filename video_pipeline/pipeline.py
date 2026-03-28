@@ -52,44 +52,64 @@ def _ensure_django():
         django.setup()
 
 
-def _generate_image_with_retry(img_gen, prompt_gen, seg, job_id, image_style, format):
-    """Generate image for a segment with retry and exponential backoff."""
+def _generate_single_image_with_retry(img_gen, image_text, job_id, seg_order, img_index, image_style, format):
+    """Generate one image with retry. Returns the saved file path."""
     retries = int(os.environ.get("IMAGE_GENERATION_RETRIES", "3"))
-
-    from video_pipeline.text_sanitizer import sanitize_for_tts
-    image_text = sanitize_for_tts(seg.text)
-    if prompt_gen is not None:
-        logger.info("[Job %s] Seg %s — generating image prompt via LLM...", job_id, seg.order)
-        image_text = prompt_gen.generate_prompt(text=image_text, image_style=image_style)
-        logger.info("[Job %s] Seg %s — image prompt: %s", job_id, seg.order, image_text[:120])
+    filename = f"image_{job_id}_{seg_order}_{img_index}.png"
 
     last_exc = None
     for attempt in range(retries):
         try:
             logger.info(
-                "[Job %s] Seg %s — requesting image (attempt %d/%d)...",
-                job_id, seg.order, attempt + 1, retries,
+                "[Job %s] Seg %s img %s — requesting image (attempt %d/%d)...",
+                job_id, seg_order, img_index, attempt + 1, retries,
             )
             path = img_gen.generate(
                 text=image_text,
-                filename=f"image_{job_id}_{seg.order}.png",
+                filename=filename,
                 image_style=image_style,
                 format=format,
             )
-            logger.info("[Job %s] Seg %s — image saved to %s", job_id, seg.order, path)
-            return seg.order, path
+            logger.info("[Job %s] Seg %s img %s — saved to %s", job_id, seg_order, img_index, path)
+            return path
         except Exception as exc:
             last_exc = exc
             logger.warning(
-                "[Job %s] Seg %s — image attempt %d failed: %s",
-                job_id, seg.order, attempt + 1, exc,
+                "[Job %s] Seg %s img %s — attempt %d failed: %s",
+                job_id, seg_order, img_index, attempt + 1, exc,
             )
             if attempt < retries - 1:
                 wait = 2 ** attempt
-                logger.info("[Job %s] Seg %s — retrying in %ds...", job_id, seg.order, wait)
+                logger.info("[Job %s] Seg %s img %s — retrying in %ds...", job_id, seg_order, img_index, wait)
                 time.sleep(wait)
 
-    raise RuntimeError(f"Image generation failed for segment {seg.order} after {retries} attempts: {last_exc}")
+    raise RuntimeError(
+        f"Image generation failed for segment {seg_order} image {img_index} "
+        f"after {retries} attempts: {last_exc}"
+    )
+
+
+def _generate_images_for_segment(img_gen, prompt_gen, seg, job_id, image_style, format, num_images):
+    """Generate all images for one segment. Returns (seg.order, [path1, path2, ...])."""
+    from video_pipeline.text_sanitizer import sanitize_for_tts
+
+    base_text = sanitize_for_tts(seg.text)
+
+    if prompt_gen is not None:
+        logger.info("[Job %s] Seg %s — generating image prompt via LLM...", job_id, seg.order)
+        image_text = prompt_gen.generate_prompt(text=base_text, image_style=image_style)
+        logger.info("[Job %s] Seg %s — image prompt: %s", job_id, seg.order, image_text[:120])
+    else:
+        image_text = base_text
+
+    paths = []
+    for i in range(num_images):
+        path = _generate_single_image_with_retry(
+            img_gen, image_text, job_id, seg.order, i + 1, image_style, format
+        )
+        paths.append(path)
+
+    return seg.order, paths
 
 
 class PipelineStoppedError(Exception):
@@ -101,7 +121,7 @@ def _process_segments(job, segments, lang, accent, speed, gender, image_style, f
     Audio is generated sequentially; images are generated in parallel with retry."""
     from video_pipeline.generators import (
         get_tts_generator, get_image_generator, get_video_generator,
-        get_image_prompt_generator, use_image_prompt_generation,
+        get_image_prompt_generator, use_image_prompt_generation, images_per_segment,
     )
 
     tts = get_tts_generator()
@@ -109,6 +129,7 @@ def _process_segments(job, segments, lang, accent, speed, gender, image_style, f
     vid_gen = get_video_generator()
     prompt_gen = get_image_prompt_generator() if use_image_prompt_generation() else None
     workers = int(os.environ.get("IMAGE_GENERATION_WORKERS", "3"))
+    num_images = images_per_segment()
 
     job_id = job.pk
 
@@ -122,7 +143,8 @@ def _process_segments(job, segments, lang, accent, speed, gender, image_style, f
         else:
             todo_segs.append(seg)
 
-    logger.info("[Job %s] %d segments to process, %d already done", job_id, len(todo_segs), len(done_segs))
+    logger.info("[Job %s] %d segments to process, %d already done (images_per_segment=%d)",
+                job_id, len(todo_segs), len(done_segs), num_images)
 
     # Step 1: Generate audio sequentially for todo segments
     for seg in todo_segs:
@@ -146,37 +168,45 @@ def _process_segments(job, segments, lang, accent, speed, gender, image_style, f
         else:
             logger.info("[Job %s] Seg %s — audio already exists, skipping", job_id, seg.order)
 
-    # Step 2: Generate images in parallel for segments missing an image
-    needs_image = [seg for seg in todo_segs if not seg.image_path or not os.path.exists(seg.image_path)]
-    logger.info("[Job %s] %d segments need image generation (workers=%d)", job_id, len(needs_image), workers)
+    # Step 2: Generate images in parallel for segments that don't have all images yet
+    def _needs_images(seg):
+        existing = seg.get_image_paths()
+        return len(existing) < num_images or not all(os.path.exists(p) for p in existing)
+
+    needs_image = [seg for seg in todo_segs if _needs_images(seg)]
+    logger.info("[Job %s] %d segments need image generation (workers=%d, %d images each)",
+                job_id, len(needs_image), workers, num_images)
 
     if needs_image:
         with ThreadPoolExecutor(max_workers=workers) as executor:
             futures = {
-                executor.submit(_generate_image_with_retry, img_gen, prompt_gen, seg, job_id, image_style, format): seg
+                executor.submit(
+                    _generate_images_for_segment,
+                    img_gen, prompt_gen, seg, job_id, image_style, format, num_images
+                ): seg
                 for seg in needs_image
             }
             for future in as_completed(futures):
-                order, image_path = future.result()  # raises on failure
+                order, image_paths = future.result()
                 seg = futures[future]
-                seg.image_path = image_path
-                seg.save(update_fields=["image_path"])
-                logger.info("[Job %s] Seg %s — image result received and saved", job_id, order)
+                seg.set_image_paths(image_paths)
+                seg.save(update_fields=["image_paths"])
+                logger.info("[Job %s] Seg %s — %d images saved", job_id, order, len(image_paths))
 
-                # Update progress counter as each image arrives (this is the slow phase)
-                job.completed_segments = len([s for s in segments if s.image_path])
+                job.completed_segments = len([s for s in segments if s.get_image_paths()])
                 job.save(update_fields=["completed_segments", "updated_at"])
 
-    # Step 3: Generate clips sequentially (audio + image both ready)
+    # Step 3: Generate clips sequentially (audio + images both ready)
     order_to_clip = {seg.order: seg.clip_path for seg in done_segs}
 
     for seg in todo_segs:
         if _is_stop_requested(job_id):
             raise PipelineStoppedError("Stop requested by user")
-        logger.info("[Job %s] Seg %s — generating video clip...", job_id, seg.order)
-        clip_path = vid_gen.generate(
+        logger.info("[Job %s] Seg %s — generating slideshow clip (%d images)...",
+                    job_id, seg.order, len(seg.get_image_paths()))
+        clip_path = vid_gen.generate_slideshow(
+            image_paths=seg.get_image_paths(),
             audio_path=seg.audio_path,
-            image_path=seg.image_path,
             output_filename=f"clip_{job_id}_{seg.order}.mp4",
             format=format,
         )

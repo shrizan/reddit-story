@@ -13,8 +13,8 @@ from .pipeline import run_pipeline_async, resume_pipeline_async, request_stop
 class StorySegmentInline(admin.TabularInline):
     model = StorySegment
     extra = 0
-    readonly_fields = ("order", "short_text", "audio_done", "image_done", "clip_done")
-    fields = ("order", "short_text", "audio_done", "image_done", "clip_done")
+    readonly_fields = ("order", "short_text", "audio_done", "images_done", "clip_done")
+    fields = ("order", "short_text", "audio_done", "images_done", "clip_done")
     can_delete = False
     show_change_link = False
 
@@ -29,9 +29,10 @@ class StorySegmentInline(admin.TabularInline):
     def audio_done(self, obj):
         return "✓" if obj.audio_path else "—"
 
-    @admin.display(description="Image")
-    def image_done(self, obj):
-        return "✓" if obj.image_path else "—"
+    @admin.display(description="Images")
+    def images_done(self, obj):
+        paths = obj.get_image_paths()
+        return f"✓ {len(paths)}" if paths else "—"
 
     @admin.display(description="Clip")
     def clip_done(self, obj):
@@ -40,8 +41,8 @@ class StorySegmentInline(admin.TabularInline):
 
 @admin.register(TTSSettings)
 class TTSSettingsAdmin(admin.ModelAdmin):
-    list_display = ("lang", "accent", "speed", "voice_gender", "image_style", "format")
-    fields = ("lang", "accent", "speed", "voice_gender", "image_style", "format")
+    list_display = ("lang", "accent", "speed", "voice_gender", "image_style", "format", "diffusion_model")
+    fields = ("lang", "accent", "speed", "voice_gender", "image_style", "format", "diffusion_model")
 
     def has_add_permission(self, request):
         return not TTSSettings.objects.exists()
@@ -70,7 +71,7 @@ class StoryJobAdmin(admin.ModelAdmin):
             "fields": ("lang", "accent", "speed", "voice_gender"),
         }),
         ("Image Options", {
-            "fields": ("image_style", "format"),
+            "fields": ("image_style", "format", "diffusion_model"),
         }),
         ("Pipeline Status", {
             "fields": ("status", "total_segments", "completed_segments", "error_message"),
@@ -121,6 +122,7 @@ class StoryJobAdmin(admin.ModelAdmin):
                     voice_gender=data["voice_gender"],
                     image_style=data["image_style"],
                     format=data["format"],
+                    diffusion_model=data["diffusion_model"],
                     status="pending",
                 )
 
@@ -145,6 +147,7 @@ class StoryJobAdmin(admin.ModelAdmin):
                 "voice_gender": defaults.voice_gender,
                 "image_style": defaults.image_style,
                 "format": defaults.format,
+                "diffusion_model": defaults.diffusion_model,
             })
 
         context = {

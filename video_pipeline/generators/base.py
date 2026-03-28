@@ -56,7 +56,18 @@ class BaseVideoGenerator(ABC):
         output_filename: str,
         format: str = "normal",
     ) -> str:
-        """Merge audio + image into a single clip. Saves to media/clips/. Returns absolute path."""
+        """Merge audio + single image into a clip. Saves to media/clips/. Returns absolute path."""
+        ...
+
+    @abstractmethod
+    def generate_slideshow(
+        self,
+        image_paths: list[str],
+        audio_path: str,
+        output_filename: str,
+        format: str = "normal",
+    ) -> str:
+        """Merge audio + multiple images (shown sequentially) into a clip. Returns absolute path."""
         ...
 
     @abstractmethod

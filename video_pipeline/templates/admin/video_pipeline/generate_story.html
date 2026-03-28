@@ -60,6 +60,15 @@
       {{ form.format }}
     </div>
 
+    <div>
+      {{ form.diffusion_model }}
+      {% if not form.diffusion_model.is_hidden %}
+      <label style="display:block; font-weight:bold; margin-bottom:4px;">
+        {{ form.diffusion_model.label }}
+      </label>
+      {% endif %}
+    </div>
+
   </div>
 
   <div>

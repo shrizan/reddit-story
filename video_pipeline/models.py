@@ -1,3 +1,4 @@
+import json
 from django.db import models
 
 
@@ -56,12 +57,19 @@ class TTSSettings(models.Model):
         ("tiktok", "TikTok (9:16 Vertical)"),
     ]
 
+    DIFFUSION_MODEL_CHOICES = [
+        ("flux-schnell", "FLUX.1 Schnell (Fast, great quality)"),
+        ("flux-dev", "FLUX.1 Dev (Slower, best quality)"),
+        ("sdxl", "Stable Diffusion XL"),
+    ]
+
     lang = models.CharField(max_length=10, choices=LANG_CHOICES, default="en")
     accent = models.CharField(max_length=20, choices=ACCENT_CHOICES, default="com")
     speed = models.CharField(max_length=10, choices=SPEED_CHOICES, default="1.0")
     voice_gender = models.CharField(max_length=10, choices=VOICE_GENDER_CHOICES, default="female")
     image_style = models.CharField(max_length=20, choices=IMAGE_STYLE_CHOICES, default="cartoon")
     format = models.CharField(max_length=20, choices=FORMAT_CHOICES, default="normal")
+    diffusion_model = models.CharField(max_length=20, choices=DIFFUSION_MODEL_CHOICES, default="flux-schnell")
 
     class Meta:
         verbose_name = "TTS Settings"
@@ -97,6 +105,7 @@ class StoryJob(models.Model):
     VOICE_GENDER_CHOICES = TTSSettings.VOICE_GENDER_CHOICES
     IMAGE_STYLE_CHOICES = TTSSettings.IMAGE_STYLE_CHOICES
     FORMAT_CHOICES = TTSSettings.FORMAT_CHOICES
+    DIFFUSION_MODEL_CHOICES = TTSSettings.DIFFUSION_MODEL_CHOICES
 
     # Input
     story_text = models.TextField()
@@ -109,6 +118,7 @@ class StoryJob(models.Model):
     voice_gender = models.CharField(max_length=10, choices=VOICE_GENDER_CHOICES, default="female")
     image_style = models.CharField(max_length=20, choices=IMAGE_STYLE_CHOICES, default="cartoon")
     format = models.CharField(max_length=20, choices=FORMAT_CHOICES, default="normal")
+    diffusion_model = models.CharField(max_length=20, choices=DIFFUSION_MODEL_CHOICES, default="flux-schnell")
 
     # Segment progress
     total_segments = models.IntegerField(default=0)
@@ -146,14 +156,15 @@ class StoryJob(models.Model):
 
 
 class StorySegment(models.Model):
-    """One segment of a story — has its own audio, image and clip."""
+    """One segment of a story — has its own audio, images and clip."""
 
     job = models.ForeignKey(StoryJob, on_delete=models.CASCADE, related_name="segments")
     order = models.IntegerField()
     text = models.TextField()
 
     audio_path = models.CharField(max_length=500, blank=True, default="")
-    image_path = models.CharField(max_length=500, blank=True, default="")
+    # JSON list of image paths e.g. ["/path/img_1_1.png", "/path/img_1_2.png"]
+    image_paths = models.TextField(blank=True, default="[]")
     clip_path = models.CharField(max_length=500, blank=True, default="")
 
     class Meta:
@@ -163,3 +174,12 @@ class StorySegment(models.Model):
 
     def __str__(self):
         return f"Segment {self.order} — Job #{self.job_id}"
+
+    def get_image_paths(self) -> list[str]:
+        try:
+            return json.loads(self.image_paths)
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    def set_image_paths(self, paths: list[str]) -> None:
+        self.image_paths = json.dumps(paths)

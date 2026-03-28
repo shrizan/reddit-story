@@ -25,7 +25,18 @@ def get_image_generator() -> BaseImageGenerator:
     provider = os.environ.get("IMAGE_PROVIDER", "gemini").lower()
     if provider == "gemini":
         return GeminiImageGenerator()
-    raise ValueError(f"Unknown image provider: '{provider}'. Valid options: gemini")
+    if provider == "diffusion":
+        from .diffusion_generator import DiffusionImageGenerator
+        return DiffusionImageGenerator()
+    raise ValueError(f"Unknown image provider: '{provider}'. Valid options: gemini, diffusion")
+
+
+def images_per_segment() -> int:
+    return int(os.environ.get("IMAGES_PER_SEGMENT", "2"))
+
+
+def use_local_diffusion() -> bool:
+    return os.environ.get("IMAGE_PROVIDER", "gemini").lower() == "diffusion"
 
 
 def get_video_generator() -> BaseVideoGenerator:
